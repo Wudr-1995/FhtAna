@@ -23,6 +23,9 @@
 #include <cmath>
 #include "PmtProp.h"
 #include "TH2D.h"
+#include "TStyle.h"
+#include "TPad.h"
+#include "TCanvas.h"
 
 using namespace std;
 
@@ -35,10 +38,17 @@ class GetFht : public AlgBase {
 		bool execute();
 		bool initGeomSvc();
 		bool initPmt();
-		bool freshPmtData(TH2D*, TH2D*);
+		bool freshPmtData(TH2D*, TH2D*, TH2D*, TH2D*, double&, double&);
 		bool finalize();
 		bool IfCrossCd(TVector3&, TVector3&, Double_t);
 		TVector3 InciOnLS(TVector3&, TVector3&, Double_t);
+		TH1D* FixCurve(TH1D*, int);
+		int ValleyFinder(TH1D*, int);
+		TH1D* GetDiff(TH1D*, int);
+		TH1D* GetDiffInte(TH1D*, int);
+		TVector3 GetInciPos(TH1D*, TH1D*, int);
+		TVector3 GetExitPos(TH1D*, TH1D*, int);
+		TVector3 GetChargeCenter();
     private:
 		int nSimTrks;
 		int m_turn;
