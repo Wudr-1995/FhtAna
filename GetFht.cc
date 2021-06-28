@@ -103,6 +103,8 @@ bool GetFht::execute() {
 		return true;
 	}
 
+	TVector3 chargeCenter = GetChargeCenter();
+
 	// TString path = m_path + "Sample_" + m_turn + "_" + m_iEvt + ".txt";
 	// outFile.open(path);
 	// path = m_path + "SamplePhi_" + m_turn + "_" + m_iEvt + ".txt";
@@ -155,8 +157,8 @@ bool GetFht::execute() {
 	TString pdfPath = m_path + "Fht2D_" + m_turn + "_" + m_iEvt + ".pdf";
 	auto c1 = new TCanvas("Fht", "", 800, 1200);
 	c1->Print(pdfPath + "[");
-	TArrow *a1;
-	TArrow *a2;
+	TArrow *a1 = NULL;
+	TArrow *a2 = NULL;
 	for (short i = 0; i < nSimTrks; i ++) {
 		JM::SimTrack* strk = simevent->findTrackByTrkID(i);
 		TVector3 Inci(strk->getInitX(), strk->getInitY(), strk->getInitZ());
@@ -202,12 +204,15 @@ bool GetFht::execute() {
 	}
 	TH1D *FhtSmoth = FixCurve(FhtvThe, 100);
 	TVector3 ExitPos = GetExitPos(FhtSmoth, Fht1D, 100);
+	TVector3 antiDir = chargeCenter - ExitPos;
+	TVector3 tmpPos = ExitPos + 2 * TMath::Abs(ExitPos * antiDir.Unit()) * antiDir.Unit();
 	TVector3 InciPos;
 	TArrow *recA;
 	if (ExitPos[0] != 0 && ExitPos[1] != 0) {
 		InciPos = GetInciPos(FhtSmoth, Fht1D, 100);
 		// recA = new TArrow(InciPos.Theta(), InciPos.Phi(), ExitPos.Theta(), ExitPos.Phi(), 0.5, "|->");
-		recA = new TArrow(InciTheta, InciPhi, ExitPos.Theta(), ExitPos.Phi(), 0.5, "|->");
+		// recA = new TArrow(InciTheta, InciPhi, ExitPos.Theta(), ExitPos.Phi(), 0.5, "|->");
+		recA = new TArrow(tmpPos.Theta(), tmpPos.Phi(), ExitPos.Theta(), ExitPos.Phi(), 0.5, "|->");
 		LogInfo << "Inci theta: " << InciPos.Theta() << ". Inci phi: " << InciPos.Phi() << endl;
 		LogInfo << "Exit theta: " << ExitPos.Theta() << ". Exit phi: " << ExitPos.Phi() << endl;
 	}
@@ -230,20 +235,29 @@ bool GetFht::execute() {
 	p1->cd();
 	gStyle->SetOptStat(0000);
 	gStyle->SetPalette(1);
+	LogInfo << "P1 & P2 declared" << endl;
 	Fht2D->SetTitle("");
 	Fht2D->GetXaxis()->SetTitleSize(0.05);
 	Fht2D->GetYaxis()->SetTitleSize(0.05);
 	Fht2D->GetXaxis()->SetLabelSize(0.05);
 	Fht2D->GetYaxis()->SetLabelSize(0.05);
 	Fht2D->Draw("colz");
-	a1->SetLineColor(kRed);
-	a1->SetFillColor(kRed);
-	a1->SetLineWidth(2);
-	a1->Draw("same");
-	a2->SetLineColor(kRed);
-	a2->SetFillColor(kRed);
-	a2->SetLineWidth(2);
-	a2->Draw("same");
+	LogInfo << "Fht2D drawed" << endl;
+	if (a1 != NULL) {
+		LogInfo << "a1 address: " << a1 << endl;
+		a1->SetLineColor(kRed);
+		a1->SetFillColor(kRed);
+		a1->SetLineWidth(2);
+		a1->Draw("same");
+		LogInfo << "a1 drawed" << endl;
+	}
+	if (a2 != NULL) {
+		a2->SetLineColor(kRed);
+		a2->SetFillColor(kRed);
+		a2->SetLineWidth(2);
+		a2->Draw("same");
+	}
+	LogInfo << "a1 & a2 drawed" << endl;
 	if (recA != NULL) {
 		recA->SetLineColor(kBlue);
 		recA->SetFillColor(kBlue);
@@ -264,6 +278,7 @@ bool GetFht::execute() {
 	Q2D->GetXaxis()->SetLabelSize(0.05);
 	Q2D->GetYaxis()->SetLabelSize(0.05);
 	Q2D->Draw("colz");
+	LogInfo << "Q2D drawed" << endl;
 	// c1->SaveAs(pdfPath);
 	c1->Print(pdfPath);
 	// FhtvThe->Smooth();
@@ -607,12 +622,121 @@ TVector3 GetFht::GetExitPos(TH1D *ThevFht, TH1D *ThevPhi, int n) {
 	double phi = ThevPhi->GetBinContent(thetaBin);
 	phi = phi * TMath::Pi() / 100 - TMath::Pi();
 	TVector3 ExitPos;
-	ExitPos.SetMagThetaPhi(17700, theta, phi);
+	ExitPos.SetMagThetaPhi(19400, theta, phi);
 	LogInfo << "Theta: " << theta << "\t"
 			<< "Phi: " << phi << endl;
 	return ExitPos;
 }
 
 TVector3 GetFht::GetChargeCenter() {
+	int n = m_ptab.size();
+	double totCharge = 0;
+	TVector3 totChaPos(0, 0, 0);
+	for (int i = 0; i < n; i ++) {
+		if (!m_ptab[i].used)
+			continue;
+		totCharge += m_ptab[i].q;
+		totChaPos += m_ptab[i].q * m_ptab[i].pos;
+	}
+	totChaPos *= 1 / totCharge;
+	return totChaPos;
+}
+
+TH2D* GetFht::MapSmooth(TH2D* ori, int nx, int ny, TString name) {
+
+	TH2D* h = (TH2D*)ori->Clone("tmph");
+
+	// Fill the empty bin
+	for (int i = 1; i <= nx; i ++) {
+		for (int j = 1; j <= ny; j ++) {
+			int x = i;
+			int y = j;
+			while (!h->GetBinContent(x, y)) {
+				int dx = nx / 2 - i;
+				int dy = ny / 2 - j;
+				if (dx)
+					dx /= TMath::Abs(dx);
+				if (dy)
+					dy /= TMath::Abs(dy);
+				x += dx;
+				y += dy;
+			}
+			if (!h->GetBinContent(i, j))
+				h->SetBinContent(i, j, h->GetBinContent(x, y));
+		}
+	}
+
+	// Extend edge of the map
+	double unit = 3.14 / nx;
+	TH2D* ret = new TH2D(name, "", nx + 20, 0 - unit, 3.14 + unit, ny + 20, -3.14 - unit, 3.14 + unit);
+	for (int i = 1; i <= nx; i ++)
+		for (int j = 1; j <= ny; j ++)
+			ret->SetBinContent(i + 10, j + 10, h->GetBinContent(i, j));
+	for (int i = 1; i <= ny; i ++) {
+		double pos = i * unit;
+		double eqPos = pos > 0 ? pos - 3.14 : pos + 3.14;
+		for (int j = 1; j <= 10; j ++)
+			ret->SetBinContent(j, i + 10, h->GetBinContent(10 - j, (int)eqPos / unit + 1));
+		for (int j = nx + 11; j <= nx + 20; j ++)
+			ret->SetBinContent(j, i + 10, h->GetBinContent(nx - (j - nx - 11), (int)eqPos / unit + 1));
+	}
+	for (int i = 1; i <= nx + 20; i ++) {
+		for (int j = 1; j <= 10; j ++) {
+			ret->SetBinContent(i, j, ret->GetBinContent(i, j + nx));
+			ret->SetBinContent(i, nx + 10 + j, ret->GetBinContent(i, j + 10));
+		}
+	}
+	h->Delete();
+
+	// Smooth process
+	TH2D* bc = (TH2D*)ret->Clone("BackH");
+	for (int i = 11; i <= nx + 10; i ++) {
+		for (int j = 11; j <= ny + 10; j ++) {
+			double tmp = 0;
+			for (int k = i - 2; k <= i + 2; k ++)
+				for (int l = j - 2; l <= j + 2; l ++)
+					tmp += bc->GetBinContent(k, l);
+			tmp /= 25;
+			ret->SetBinContent(i, j, tmp);
+		}
+	}
+	return ret;
+}
+
+int* GetFht::GetMassPos(TH2D* ori, int nx, int ny) {
+	struct PosPE
+	{
+		int pos;
+		double PE;
+	};
+
+	vector<PosPE> ct;
 	
+	for (int i = 11; i <= nx - 10; i ++) {
+		for (int j = 11; j <= ny - 10; j ++) {
+			double tmp = 0;
+			for (int k = i - 5; k <= i + 5; k ++)
+				for (int l = j - 5; l <= j + 5; l ++)
+					tmp += ori->GetBinContent(k, l);
+			tmp /= 121;
+			if (tmp > 7000) {
+				PosPE pp;
+				pp.pos = i * 1000 + j;
+				pp.PE = tmp;
+				ct.push_back(pp);
+			}
+		}
+	}
+
+	sort(ct.begin(), ct.end(), [](PosPE a, PosPE b) {
+		return a.PE > b.PE;
+	});
+
+	int mass[4];
+	for (int i = 0; i < 4; i ++)
+		mass[i] = ct[i].pos;
+	
+	int* ret;
+	ret = mass;
+	return ret;
 }

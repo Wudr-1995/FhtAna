@@ -26,6 +26,9 @@
 #include "TStyle.h"
 #include "TPad.h"
 #include "TCanvas.h"
+#include "TString.h"
+#include <vector>
+#include <algorithm>
 
 using namespace std;
 
@@ -49,6 +52,8 @@ class GetFht : public AlgBase {
 		TVector3 GetInciPos(TH1D*, TH1D*, int);
 		TVector3 GetExitPos(TH1D*, TH1D*, int);
 		TVector3 GetChargeCenter();
+		TH2D* MapSmooth(TH2D*, int, int, TString);
+		TVector3* GetMassPos(TH2D*, int, int, TString);
     private:
 		int nSimTrks;
 		int m_turn;
