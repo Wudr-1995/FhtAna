@@ -24,6 +24,7 @@ struct PmtProp{
     double amp; 
     double integ; 
     bool used;
+	int loc;
     Pmttype type; 
 };
 typedef std::vector<PmtProp> PmtTable; 
