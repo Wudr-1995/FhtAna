@@ -24,7 +24,7 @@ m_buf(0),
 m_usedPmtNum(0)
 {
 	declProp("ChargeCut", m_qcut = 0);
-	declProp("Use3inchPmt", m_3inchusedflag = false);
+	declProp("Use3inchPmt", m_3inchusedflag = true);
 	declProp("Use20inchPmt", m_20inchusedflag = true);
 	declProp("Pmt3inchTimeReso", m_3inchRes = 1);
 	declProp("Pmt20inchTimeReso", m_20inchRes = 8);
@@ -50,8 +50,6 @@ bool FhtAna::initialize() {
 
 bool FhtAna::execute() {
 	LogDebug << "executing: " << m_iEvt ++ << std::endl;
-	if (m_iEvt < 2)
-		return true;
 	TH2D* FhtDis = new TH2D("FhtDistribution", "FhtDistribution", 100, 0, PI, 500, 0, 500);
 	TH2D* FhtPhi = new TH2D("FhtVPhi", "FhtVPhi", 200, -PI, PI, 500, 0, 500);
 	TH2D* Fht2D = new TH2D("FhtDistribution2D", "", 100, 0, PI, 200, -PI, PI);
@@ -497,7 +495,7 @@ bool FhtAna::execute() {
 	TH2D* pos = new TH2D("pos", "", 500, - 25000, 25000, 500, - 25000, 25000);
 	TH2D* LiDiff = new TH2D("LiDiff", "", 500, 0, 10000, 200, - 100, 100);
 	TH2D* QDiff = new TH2D("QDiff", "", 50, 0, 50, 200, - 100, 100);
-	TH2D* TDiff = new TH2D("TDiff", "", 100, 0, 100, 200, - 100, 100);
+	TH2D* TDiff = new TH2D("TDiff", "", 200, 0, 200, 200, - 100, 100);
 
 	for (short i = 1; i <= 1; i ++) {
 		JM::SimTrack* strk = simevent->findTrackByTrkID(i);
@@ -534,7 +532,7 @@ bool FhtAna::execute() {
 			int nPMTs = m_ptab.size();
 			Dir = Dir.Unit();
 			for (int i = 0; i < nPMTs; i ++) {
-				if (m_ptab[i].q < 1 || m_ptab[i].fht > 90)
+				if (m_ptab[i].q < 1 || m_ptab[i].fht - m_earlist > 50)
 					continue;
 
 				double nLS = 1.485;
@@ -542,18 +540,30 @@ bool FhtAna::execute() {
 				double vMuon = 299.;
 				double nW = 1.34;
 				double ti = 0;
+				double LSR = 17700.;
 
-				double tan = TMath::Sqrt(nW * nW - 1);
+				double tan = TMath::Sqrt(nLS * nLS - 1);
 
 				TVector3 perp = Inci + Dir * (m_ptab[i].pos - Inci) * Dir;
 
+				TVector3 Mid = Dir * (- Inci) * Dir + Inci;
+
+				TVector3 LSInci = Mid - Dir * TMath::Sqrt(LSR * LSR - Mid.Mag2());
+
+				TVector3 LSExit = Mid + Dir * TMath::Sqrt(LSR * LSR - Mid.Mag2());
+
 				TVector3 liSource = perp - (m_ptab[i].pos - perp).Mag() / tan * Dir;
+
+				if ((liSource - LSInci) * Dir < 0)
+					liSource = LSInci;
+				else if ((liSource - LSExit) * Dir > 0)
+					liSource = LSExit;
 
 				TVector3 liDir = m_ptab[i].pos - liSource;
 
 				double dis = TMath::Sqrt(TMath::Power(m_ptab[i].pos.Mag(), 2) - TMath::Power(m_ptab[i].pos * liDir.Unit(), 2));
 
-				double expFht = ti + (liSource - Inci) * Dir / vMuon + (m_ptab[i].pos - liSource).Mag() * nW / cLight;
+				double expFht = ti + (liSource - Inci) * Dir / vMuon + (m_ptab[i].pos - liSource).Mag() * nLS / cLight;
 
 				int binx = m_ptab[i].pos.Theta() / PI * 100 + 1;
 				int biny = m_ptab[i].pos.Phi() / PI * 100 + 101;
@@ -628,7 +638,7 @@ bool FhtAna::execute() {
 	TDiff->GetYaxis()->SetTitleSize(0.05);
 	TDiff->GetXaxis()->SetLabelSize(0.05);
 	TDiff->GetYaxis()->SetLabelSize(0.05);
-	TDiff->GetXaxis()->SetTitle("Light route / mm");
+	TDiff->GetXaxis()->SetTitle("FHT / ns");
 	TDiff->GetYaxis()->SetTitle("(exp - truth) / ns");
 	TDiff->Draw("colz");
 	c1->Print(pdfPath);
@@ -693,7 +703,7 @@ bool FhtAna::initGeomSvc() {
 bool FhtAna::initPmt() {
 	LogDebug << "Initializing PMTs" << std::endl;
 	totPmtNum = 0;
-	totPmtNum = m_wpgeom->getPmtNum();
+	totPmtNum = m_geom->getPmtNum();
 	if (!totPmtNum) {
 		LogError << "Wrong PMT Number" << std::endl;
 		return false;
@@ -702,19 +712,19 @@ bool FhtAna::initPmt() {
 	m_ptab.reserve(totPmtNum);
 	m_ptab.resize(totPmtNum);
 	for (unsigned int pid = 0; pid < totPmtNum; pid ++) {
-		Identifier Id = Identifier(WpID::id(pid, 0));
-		PmtGeom* pmt = m_wpgeom->getPmt(Id);
+		Identifier Id = Identifier(CdID::id(pid, 0));
+		PmtGeom* pmt = m_geom->getPmt(Id);
 		if (!pmt) {
 			LogError << "Wrong PMT ID" << std::endl;
 			return false;
 		}
 		TVector3 pmtCenter = pmt->getCenter();
 		m_ptab[pid].pos = pmtCenter;
-		// if (WpID::is3inch(Id)) {
-		// 	m_ptab[pid].res = m_3inchRes;
-		// 	m_ptab[pid].type = _PMTINCH3;
-		// }
-		if (WpID::is20inch(Id)) {
+		if (CdID::is3inch(Id)) {
+			m_ptab[pid].res = m_3inchRes;
+			m_ptab[pid].type = _PMTINCH3;
+		}
+		else if (CdID::is20inch(Id)) {
 			m_ptab[pid].res = m_20inchRes;
 			m_ptab[pid].type = _PMTINCH20;
 		}
@@ -752,17 +762,17 @@ bool FhtAna::freshPmtData(TH2D* ht, TH2D* pht, TH2D *h2d, TH2D *q2d, TH2D* nPMT,
 		Identifier id = Identifier(calib->pmtId());
 		Identifier::value_type value = id.getValue();
 		unsigned int pid;
-		if (not ((value & 0xFF000000) >> 24 == 0x20)) {
+		if (not ((value & 0xFF000000) >> 24 == 0x10)) {
 			continue;
 		}
 		if (pid > totPmtNum) {
 			LogError << "Data/Geometry Mis-Match : PmtId(" << pid << ") >= the number of PMTs." << std::endl;
 			return false;
 		}
-		pid = WpID::module(id);
+		pid = CdID::module(id);
 		m_ptab[pid].q = calib->nPE();
 		m_ptab[pid].fht = calib->firstHitTime();
-		if ((WpID::is20inch(id) && m_20inchusedflag)) {
+		if ((CdID::is3inch(id) && m_3inchusedflag)) {
 			if (earliest > m_ptab[pid].fht) {
 				earliest = m_ptab[pid].fht;
 				theta = m_ptab[pid].pos.Theta();
@@ -775,7 +785,7 @@ bool FhtAna::freshPmtData(TH2D* ht, TH2D* pht, TH2D *h2d, TH2D *q2d, TH2D* nPMT,
 			pht->Fill(m_ptab[pid].pos.Phi(), m_ptab[pid].fht);
 			int binx = m_ptab[pid].pos.Theta() / (PI / 100);
 			int biny = (m_ptab[pid].pos.Phi() + TMath::Pi()) / (PI / 100);
-			if (m_ptab[pid].fht < 100)
+			if (m_ptab[pid].fht < 140)
 				h2d->SetBinContent(binx, biny,
 								   m_ptab[pid].fht < h2d->GetBinContent(binx, biny) || h2d->GetBinContent(binx, biny) == 0 ?
 								   m_ptab[pid].fht : h2d->GetBinContent(binx, biny));
@@ -787,6 +797,7 @@ bool FhtAna::freshPmtData(TH2D* ht, TH2D* pht, TH2D *h2d, TH2D *q2d, TH2D* nPMT,
 			// LogDebug << h2d->GetBinContent(binx, biny) << std::endl;
 		}
 	}
+	m_earlist = earliest;
 	LogDebug << "Loading calibration data done" << std::endl;
 	return true;
 }

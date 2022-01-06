@@ -103,6 +103,7 @@ class FhtAna : public AlgBase {
 		bool m_20inchusedflag;
 		Double_t m_qcut;
 		void Corrosion(TH2D*, int, int);
+		double m_earlist;
 };
 
 #endif
